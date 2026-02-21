@@ -1,65 +1,79 @@
 # BlackRock Retirement Micro-Savings Challenge
 
-**Author:** Mallikarjun Halagali  
-**Docker Image:** `blk-hacking-ind-mallikarjun-halagali`  
-**Port:** `5477`
+Author: Mallikarjun Halagali  
+Docker Image: `blk-hacking-ind-mallikarjun-halagali`  
+Port: `5477`
 
 ---
 
-## 📋 Overview
+## Overview
 
-A RESTful API service for automated retirement savings through expense-based micro-investments. The system implements an **auto-saving strategy** — every expense is rounded up to the next multiple of ₹100, and the spare change ("remanent") is automatically invested for retirement. The API also supports temporal override rules, investment return projections (NPS & Index Fund), and Indian tax benefit calculations.
+This is a RESTful API service for automated retirement savings through expense-based micro-investments. The system implements an auto-saving strategy where every expense is rounded up to the next multiple of ₹100, and the spare change ("remanent") is automatically set aside for retirement. The API also supports temporal override rules, investment return projections (NPS and Index Fund), and Indian tax benefit calculations.
 
 ---
 
-## 🏗️ Architecture & Workflow
+## Technology Stack and Design Decisions
+
+| Component | Choice | Reason |
+|-----------|--------|--------|
+| Language | Java 21 | LTS release with virtual threads and pattern matching. Type safety is important for financial calculations, and Java's ecosystem provides strong tooling. |
+| Framework | Spring Boot 3.2.3 | Well-suited for building RESTful APIs. Comes with an embedded Tomcat server, JSON handling via Jackson, and built-in testing support. Reduces boilerplate significantly. |
+| Build Tool | Maven 3.9 | Standard dependency management for Java. Provides reproducible builds through `pom.xml` and integrates well with Docker multi-stage builds. |
+| Container OS | Alpine Linux | Minimal base image (~5MB). Brings the final container size down from ~400MB to ~200MB compared to a full Ubuntu-based image. Also has a smaller attack surface. |
+| Money representation | `long` | All amounts in the problem are integers, so using `long` avoids floating-point precision issues entirely. ₹1519 is stored as `1519`, not `15.19`. |
+| Date parsing | Strict + Lenient | Transaction dates are validated strictly (invalid calendar dates like Nov 31 are rejected). Period boundaries use lenient parsing so edge cases like "2023-11-31" roll over to Dec 1 gracefully. |
+| Error handling | `@RestControllerAdvice` | Centralised exception handler that returns consistent JSON error responses (400/500) instead of Spring's default HTML error pages. |
+
+---
+
+## Architecture and Workflow
 
 ### How the Savings Engine Works
 
 ```
 ┌─────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   Expense   │ ──▶ │  Step 1:     │ ──▶ │  Step 2:     │ ──▶ │  Step 3:     │
+│   Expense   │ ──> │  Step 1:     │ ──> │  Step 2:     │ ──> │  Step 3:     │
 │   Input     │     │  Round Up    │     │  q-Override  │     │  p-Addition  │
 │  ₹1519      │     │  ₹1519→₹1600│     │  Replace or  │     │  Add extra   │
 │             │     │  rem = ₹81   │     │  keep rem    │     │  from p rule │
 └─────────────┘     └──────────────┘     └──────────────┘     └──────┬───────┘
                                                                      │
                     ┌──────────────┐     ┌──────────────┐            │
-                    │  Step 5:     │ ◀── │  Step 4:     │ ◀──────────┘
+                    │  Step 5:     │ <── │  Step 4:     │ <──────────┘
                     │  Calculate   │     │  k-Grouping  │
                     │  Investment  │     │  Sum by date  │
                     │  Returns     │     │  ranges      │
                     └──────────────┘     └──────────────┘
 ```
 
-### Processing Pipeline (Step by Step)
+### Processing Pipeline
 
-1. **Parse** — Each expense amount is rounded up to the next ₹100. The difference is the "remanent" (savings).
-   - Example: ₹1519 → ceiling ₹1600 → **remanent = ₹81**
-   - If already a multiple of 100 (e.g., ₹500): **remanent = ₹0**
+1. Parse — Each expense amount is rounded up to the next ₹100. The difference is the "remanent" (savings).
+   - Example: ₹1519 rounds up to ₹1600, so the remanent is ₹81.
+   - If the amount is already a multiple of 100 (like ₹500), the remanent is ₹0.
 
-2. **q-Period Override** — During specific date ranges, the remanent is **replaced** with a fixed amount.
-   - If multiple q-periods overlap: the one with the **latest start date** wins.
-   - If same start date: the **first one in the input list** wins.
+2. q-Period Override — During certain date ranges, the calculated remanent gets replaced with a fixed amount.
+   - If multiple q-periods overlap for a transaction, the one with the latest start date takes priority.
+   - If two q-periods have the same start date, the first one in the input list is used.
 
-3. **p-Period Addition** — During specific date ranges, an extra amount is **added** to the remanent.
-   - If multiple p-periods overlap: **all extras are summed** (they stack).
-   - Applied **after** q-rules (so if q sets remanent to 50, p adds on top of 50).
+3. p-Period Addition — During certain date ranges, an extra amount is added on top of the remanent.
+   - If multiple p-periods overlap, all their extras are summed together (they stack).
+   - This is applied after q-rules. So if q sets a remanent to 50 and p adds 20, the result is 70.
 
-4. **k-Period Grouping** — At the end of the year, remanents are summed for each k date range.
-   - A transaction can belong to **multiple k-periods** (overlapping ranges are independent).
+4. k-Period Grouping — At year-end, the remanents are summed up for each k date range independently.
+   - A single transaction can fall into multiple k-periods if those ranges overlap.
 
-5. **Investment Returns** — The total savings can be projected using NPS or Index Fund returns.
+5. Investment Returns — The total savings are projected into the future using either NPS or Index Fund returns with compound interest.
 
 ### Investment Options
 
 | Option | Annual Return | Tax Benefit | Compounding |
 |--------|-------------|-------------|-------------|
-| **NPS** (National Pension Scheme) | 7.11% | Yes (Section 80CCD) | Annual |
-| **NIFTY 50 Index Fund** | 14.49% | No | Annual |
+| NPS (National Pension Scheme) | 7.11% | Yes (Section 80CCD) | Annual |
+| NIFTY 50 Index Fund | 14.49% | No | Annual |
 
-**Return Formula:** `A = P × (1 + r)^t` where `t = 60 - current_age`  
-**Inflation Adjustment:** `A_real = A / (1 + inflation)^t`
+Return formula: `A = P × (1 + r)^t` where t = 60 − current age  
+Inflation adjustment: `A_real = A / (1 + inflation)^t`
 
 ### Indian Tax Slabs (Simplified New Regime)
 
@@ -71,28 +85,14 @@ A RESTful API service for automated retirement savings through expense-based mic
 | ₹12,00,001 – ₹15,00,000 | 20% |
 | Above ₹15,00,000 | 30% |
 
-**NPS Tax Benefit:** Eligible deduction = `min(invested, 10% of wage, ₹2,00,000)`  
+NPS tax benefit: Eligible deduction = `min(invested, 10% of wage, ₹2,00,000)`  
 Benefit = `Tax(wage) − Tax(wage − deduction)`
 
 ---
 
-## 🛠️ Technology Stack & Design Decisions
+## Quick Start
 
-| Component | Choice | Why? |
-|-----------|--------|------|
-| **Language** | Java 21 | LTS release with virtual threads, pattern matching, and record support. Ideal for financial systems requiring type safety and performance. |
-| **Framework** | Spring Boot 3.2.3 | Industry-standard for building RESTful APIs. Auto-configuration reduces boilerplate. Built-in Tomcat server, JSON serialization, and testing support. |
-| **Build Tool** | Maven 3.9 | Widely adopted dependency management. Reproducible builds via `pom.xml`. Integrates seamlessly with Docker multi-stage builds. |
-| **Container OS** | Alpine Linux | Minimal footprint (~5MB base image). Reduces container size from ~400MB to ~200MB. Smaller attack surface for security. |
-| **Data Types** | `long` for money | Avoids floating-point precision issues (₹1519 stored as `1519`, not `15.19`). Since all amounts in the problem are integers, `long` is the natural fit. |
-| **Date Parsing** | Lenient + Strict | Strict parsing for transaction validation (reject invalid dates). Lenient parsing for period boundaries (handle edge cases like "Nov 31" → "Dec 1"). |
-| **Error Handling** | Global `@RestControllerAdvice` | Centralized error handling returns consistent JSON error responses (400/500) instead of Spring's default HTML error pages. |
-
----
-
-## 🚀 Quick Start
-
-### Docker (Recommended)
+### Using Docker (Recommended)
 
 ```bash
 # Build the image
@@ -105,11 +105,11 @@ docker run -d -p 5477:5477 blk-hacking-ind-mallikarjun-halagali
 docker compose up --build
 ```
 
-### Local Development
+### Running Locally
+
+Prerequisites: Java 21 and Maven 3.9+ installed.
 
 ```bash
-# Prerequisites: Java 21, Maven 3.9+
-
 # Build and run
 mvn clean package
 java -jar target/retirement-savings-1.0.0.jar
@@ -118,11 +118,11 @@ java -jar target/retirement-savings-1.0.0.jar
 mvn spring-boot:run
 ```
 
-The server starts on **http://localhost:5477**.
+The server starts at http://localhost:5477.
 
 ---
 
-## 📡 RESTful API Endpoints
+## RESTful API Endpoints
 
 Base path: `/blackrock/challenge/v1`
 
@@ -130,7 +130,7 @@ Base path: `/blackrock/challenge/v1`
 
 `POST /transactions:parse`
 
-Enriches raw expenses with ceiling and remanent fields.
+Takes raw expenses and enriches them with ceiling and remanent values.
 
 ```bash
 curl -X POST http://localhost:5477/blackrock/challenge/v1/transactions:parse \
@@ -143,7 +143,7 @@ curl -X POST http://localhost:5477/blackrock/challenge/v1/transactions:parse \
   }'
 ```
 
-**Response:**
+Response:
 ```json
 {
   "transactions": [
@@ -159,7 +159,7 @@ curl -X POST http://localhost:5477/blackrock/challenge/v1/transactions:parse \
 
 `POST /transactions:validator`
 
-Validates expenses against constraints: amount (0 ≤ x < 500000), valid date format, no duplicate timestamps.
+Checks each expense against the rules: amount must be between 0 and 500000, date must be valid, and no two transactions can share the same timestamp.
 
 ```bash
 curl -X POST http://localhost:5477/blackrock/challenge/v1/transactions:validator \
@@ -173,7 +173,7 @@ curl -X POST http://localhost:5477/blackrock/challenge/v1/transactions:validator
   }'
 ```
 
-**Response:**
+Response:
 ```json
 {
   "valid": [{ "date": "2023-10-01 20:15:00", "amount": 375 }],
@@ -183,11 +183,11 @@ curl -X POST http://localhost:5477/blackrock/challenge/v1/transactions:validator
 
 ---
 
-### 3. Filter & Calculate Savings
+### 3. Filter and Calculate Savings
 
 `POST /transactions:filter`
 
-Applies q/p/k temporal rules and computes savings per k-period.
+Applies the q, p, and k temporal rules and returns the savings grouped by each k-period.
 
 ```bash
 curl -X POST http://localhost:5477/blackrock/challenge/v1/transactions:filter \
@@ -208,7 +208,7 @@ curl -X POST http://localhost:5477/blackrock/challenge/v1/transactions:filter \
   }'
 ```
 
-**Response:**
+Response:
 ```json
 {
   "savingsByDates": [145, 75],
@@ -222,7 +222,7 @@ curl -X POST http://localhost:5477/blackrock/challenge/v1/transactions:filter \
 
 `POST /returns:nps`
 
-Calculates NPS investment returns (7.11% annual compounding) with Indian tax benefit.
+Projects NPS investment returns at 7.11% annual compounding, including the Indian tax benefit calculation.
 
 ```bash
 curl -X POST http://localhost:5477/blackrock/challenge/v1/returns:nps \
@@ -230,7 +230,7 @@ curl -X POST http://localhost:5477/blackrock/challenge/v1/returns:nps \
   -d '{ "invested": 280, "wage": 50000, "age": 29, "inflation": 5.5 }'
 ```
 
-**Response:**
+Response:
 ```json
 {
   "invested": 280.0,
@@ -247,7 +247,7 @@ curl -X POST http://localhost:5477/blackrock/challenge/v1/returns:nps \
 
 `POST /returns:index`
 
-Calculates NIFTY 50 Index Fund returns (14.49% annual compounding). No tax benefits.
+Projects NIFTY 50 Index Fund returns at 14.49% annual compounding. There are no tax benefits for this option.
 
 ```bash
 curl -X POST http://localhost:5477/blackrock/challenge/v1/returns:index \
@@ -255,7 +255,7 @@ curl -X POST http://localhost:5477/blackrock/challenge/v1/returns:index \
   -d '{ "invested": 280, "age": 29, "inflation": 5.5 }'
 ```
 
-**Response:**
+Response:
 ```json
 {
   "invested": 280.0,
@@ -271,13 +271,13 @@ curl -X POST http://localhost:5477/blackrock/challenge/v1/returns:index \
 
 `GET /performance`
 
-Returns runtime system metrics.
+Returns runtime system metrics like uptime, memory usage, and active thread count.
 
 ```bash
 curl http://localhost:5477/blackrock/challenge/v1/performance
 ```
 
-**Response:**
+Response:
 ```json
 {
   "executionTimeMs": 40563,
@@ -288,37 +288,38 @@ curl http://localhost:5477/blackrock/challenge/v1/performance
 
 ---
 
-## 🧪 Testing
+## Testing
+
+Run all 24 unit tests:
 
 ```bash
-# Run all 24 unit tests
 mvn test
 ```
 
 ### Test Coverage
 
-| Area | Tests | What's Validated |
-|------|-------|-----------------|
-| Parsing | 4 | Basic rounding, multiples of 100, zero, small amounts |
-| Validation | 3 | Valid expense, invalid amount (≥500K), duplicate dates |
-| q-Rules | 3 | Override, latest start wins, same-start tiebreaker |
-| p-Rules | 2 | Single addition, multiple stacking |
-| q+p Combined | 1 | q replaces then p adds on top |
-| k-Grouping | 3 | Multiple ranges, overlapping ranges, empty expenses |
-| Tax | 4 | Below threshold, single slab, multi-slab, all slabs |
-| NPS Benefit | 1 | Deduction and benefit calculation |
-| Returns | 2 | NPS and Index Fund compound interest |
+| Area | Tests | What is Validated |
+|------|-------|-------------------|
+| Parsing | 4 | Basic rounding, multiples of 100, zero amount, small amounts |
+| Validation | 3 | Valid expense, invalid amount (500K+), duplicate timestamps |
+| q-Rules | 3 | Fixed override, latest start date priority, same-start tiebreaker |
+| p-Rules | 2 | Single extra addition, multiple extras stacking |
+| q + p Combined | 1 | q replaces first, then p adds on top |
+| k-Grouping | 3 | Multiple ranges, overlapping ranges, empty expense list |
+| Tax Slabs | 4 | Below threshold, single slab, multiple slabs, highest slab |
+| NPS Benefit | 1 | Deduction eligibility and tax savings |
+| Returns | 2 | NPS and Index Fund compound interest with inflation |
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 retirement-savings/
-├── Dockerfile                 # Multi-stage build (Maven → Alpine JRE)
+├── Dockerfile                 # Multi-stage build (Maven build → Alpine JRE runtime)
 ├── compose.yaml               # Docker Compose configuration
-├── pom.xml                    # Maven dependencies & build config
-├── README.md                  # This file
+├── pom.xml                    # Maven dependencies and build config
+├── README.md
 ├── .gitignore
 ├── .dockerignore
 └── src/
@@ -326,62 +327,61 @@ retirement-savings/
     │   ├── java/com/blackrock/challenge/
     │   │   ├── RetirementSavingsApplication.java    # Spring Boot entry point
     │   │   ├── controller/
-    │   │   │   ├── ChallengeController.java         # 6 REST endpoints
-    │   │   │   └── GlobalExceptionHandler.java      # Error handling (400/500)
-    │   │   ├── dto/                                 # Request/Response objects
-    │   │   │   ├── ParseRequest/Response.java
-    │   │   │   ├── ValidatorRequest/Response.java
-    │   │   │   ├── FilterRequest/Response.java
-    │   │   │   ├── NpsRequest/Response.java
-    │   │   │   ├── IndexRequest/Response.java
+    │   │   │   ├── ChallengeController.java         # All 6 REST endpoints
+    │   │   │   └── GlobalExceptionHandler.java      # Centralised error handling
+    │   │   ├── dto/                                 # Request and response objects
+    │   │   │   ├── ParseRequest.java / ParseResponse.java
+    │   │   │   ├── ValidatorRequest.java / ValidatorResponse.java
+    │   │   │   ├── FilterRequest.java / FilterResponse.java
+    │   │   │   ├── NpsRequest.java / NpsResponse.java
+    │   │   │   ├── IndexRequest.java / IndexResponse.java
     │   │   │   └── PerformanceResponse.java
     │   │   ├── model/                               # Domain models
     │   │   │   ├── Expense.java
     │   │   │   ├── Transaction.java
-    │   │   │   ├── QPeriod.java / PPeriod.java / KPeriod.java
-    │   │   └── service/                             # Business logic
-    │   │       ├── TransactionService.java          # Parse, validate, filter
-    │   │       ├── ReturnsService.java              # NPS & Index calculations
-    │   │       ├── TaxService.java                  # Indian tax slabs
+    │   │   │   ├── QPeriod.java
+    │   │   │   ├── PPeriod.java
+    │   │   │   └── KPeriod.java
+    │   │   └── service/                             # Core business logic
+    │   │       ├── TransactionService.java          # Parsing, validation, filtering
+    │   │       ├── ReturnsService.java              # NPS and Index Fund calculations
+    │   │       ├── TaxService.java                  # Indian tax slab calculator
     │   │       └── PerformanceService.java          # Runtime metrics
     │   └── resources/
-    │       └── application.properties               # Server port config
+    │       └── application.properties               # Server port = 5477
     └── test/java/com/blackrock/challenge/
         └── SavingsCalculatorTest.java               # 24 unit tests
 ```
 
 ---
 
-## 🔧 Dependencies
+## Dependencies
 
 | Dependency | Purpose |
 |-----------|---------|
-| `spring-boot-starter-web` | REST API framework with embedded Tomcat |
-| `spring-boot-starter-test` | JUnit 5, Mockito, Spring test utilities |
-| `jackson` (included via Spring) | JSON serialization/deserialization |
+| `spring-boot-starter-web` | REST API framework with embedded Tomcat server |
+| `spring-boot-starter-test` | JUnit 5, Mockito, and Spring test utilities |
+| `jackson` (bundled with Spring) | JSON serialization and deserialization |
 
-**No external database or third-party service required.** The application is fully self-contained.
+No external database or third-party service is required. The application is fully self-contained.
 
 ---
 
-## 📦 Docker Details
+## Docker Details
 
 | Property | Value |
 |----------|-------|
-| Base Image (Build) | `maven:3.9-eclipse-temurin-21` |
-| Base Image (Runtime) | `eclipse-temurin:21-jre-alpine` |
-| Exposed Port | `5477` |
-| Image Name | `blk-hacking-ind-mallikarjun-halagali` |
-| Container Size | ~200MB |
+| Build image | `maven:3.9-eclipse-temurin-21` |
+| Runtime image | `eclipse-temurin:21-jre-alpine` |
+| Exposed port | 5477 |
+| Image name | `blk-hacking-ind-mallikarjun-halagali` |
+| Final container size | ~200MB |
 
-### Multi-Stage Build Strategy
+### Multi-Stage Build
 
-```
-Stage 1 (Build):  maven:3.9-eclipse-temurin-21 (~800MB)
-    └── Compiles source code and packages JAR
+The Dockerfile uses a two-stage approach:
 
-Stage 2 (Runtime): eclipse-temurin:21-jre-alpine (~200MB)
-    └── Copies only the JAR, runs with minimal JRE
-```
+1. Stage 1 (Build) — Uses the full Maven + JDK image (~800MB) to compile the source code and package a JAR.
+2. Stage 2 (Runtime) — Copies only the JAR into a lightweight Alpine JRE image (~200MB).
 
-This reduces the final image size by **~75%** compared to shipping the full JDK.
+This brings the final image size down by about 75% compared to shipping the full JDK.
