@@ -14,15 +14,15 @@ This is a RESTful API service for automated retirement savings through expense-b
 
 ## Technology Stack and Design Decisions
 
-| Component | Choice | Reason |
-|-----------|--------|--------|
-| Language | Java 21 | LTS release with virtual threads and pattern matching. Type safety is important for financial calculations, and Java's ecosystem provides strong tooling. |
-| Framework | Spring Boot 3.2.3 | Well-suited for building RESTful APIs. Comes with an embedded Tomcat server, JSON handling via Jackson, and built-in testing support. Reduces boilerplate significantly. |
-| Build Tool | Maven 3.9 | Standard dependency management for Java. Provides reproducible builds through `pom.xml` and integrates well with Docker multi-stage builds. |
-| Container OS | Alpine Linux | Minimal base image (~5MB). Brings the final container size down from ~400MB to ~200MB compared to a full Ubuntu-based image. Also has a smaller attack surface. |
-| Money representation | `long` | All amounts in the problem are integers, so using `long` avoids floating-point precision issues entirely. ₹1519 is stored as `1519`, not `15.19`. |
-| Date parsing | Strict + Lenient | Transaction dates are validated strictly (invalid calendar dates like Nov 31 are rejected). Period boundaries use lenient parsing so edge cases like "2023-11-31" roll over to Dec 1 gracefully. |
-| Error handling | `@RestControllerAdvice` | Centralised exception handler that returns consistent JSON error responses (400/500) instead of Spring's default HTML error pages. |
+| What | Used | Why |
+|------|------|-----|
+| Language | Java 21 | Required by the challenge. LTS version with good performance for handling up to 10^6 transactions. |
+| Framework | Spring Boot 3.2.3 | Used for building the REST API endpoints. Handles HTTP routing, JSON parsing, and runs an embedded Tomcat server. |
+| Build Tool | Maven 3.9 | Manages project dependencies and builds the JAR. Works well with Docker multi-stage builds. |
+| Container OS | Alpine Linux | Keeps the Docker image small (~200MB instead of ~400MB with Ubuntu). |
+| Money types | `long` | All amounts are integers in the problem, so `long` avoids floating-point rounding errors. |
+| Date parsing | Strict + Lenient | Strict for validating transaction dates. Lenient for period boundaries to handle edge cases like "Nov 31" rolling to Dec 1. |
+| Error handling | `@RestControllerAdvice` | Returns JSON error responses (400/500) instead of default HTML error pages. |
 
 ---
 
@@ -34,7 +34,7 @@ This is a RESTful API service for automated retirement savings through expense-b
 ┌─────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
 │   Expense   │ ──> │  Step 1:     │ ──> │  Step 2:     │ ──> │  Step 3:     │
 │   Input     │     │  Round Up    │     │  q-Override  │     │  p-Addition  │
-│  ₹1519      │     │  ₹1519→₹1600│     │  Replace or  │     │  Add extra   │
+│  ₹1519      │     │  ₹1519→₹1600 │     │  Replace or  │     │  Add extra   │
 │             │     │  rem = ₹81   │     │  keep rem    │     │  from p rule │
 └─────────────┘     └──────────────┘     └──────────────┘     └──────┬───────┘
                                                                      │
