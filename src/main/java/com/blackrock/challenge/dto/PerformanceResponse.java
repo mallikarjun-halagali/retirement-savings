@@ -4,45 +4,45 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 public class PerformanceResponse {
 
-    @JsonProperty("executionTimeMs")
-    private long executionTimeMs;
+    @JsonProperty("time")
+    private String time;
 
-    @JsonProperty("memoryUsageMb")
-    private double memoryUsageMb;
+    @JsonProperty("memory")
+    private String memory;
 
-    @JsonProperty("activeThreads")
-    private int activeThreads;
+    @JsonProperty("threads")
+    private int threads;
 
     public PerformanceResponse() {
     }
 
-    public PerformanceResponse(long executionTimeMs, double memoryUsageMb, int activeThreads) {
-        this.executionTimeMs = executionTimeMs;
-        this.memoryUsageMb = memoryUsageMb;
-        this.activeThreads = activeThreads;
+    public PerformanceResponse(String time, String memory, int threads) {
+        this.time = time;
+        this.memory = memory;
+        this.threads = threads;
     }
 
-    public long getExecutionTimeMs() {
-        return executionTimeMs;
+    public String getTime() {
+        return time;
     }
 
-    public void setExecutionTimeMs(long executionTimeMs) {
-        this.executionTimeMs = executionTimeMs;
+    public void setTime(String time) {
+        this.time = time;
     }
 
-    public double getMemoryUsageMb() {
-        return memoryUsageMb;
+    public String getMemory() {
+        return memory;
     }
 
-    public void setMemoryUsageMb(double memoryUsageMb) {
-        this.memoryUsageMb = memoryUsageMb;
+    public void setMemory(String memory) {
+        this.memory = memory;
     }
 
-    public int getActiveThreads() {
-        return activeThreads;
+    public int getThreads() {
+        return threads;
     }
 
-    public void setActiveThreads(int activeThreads) {
-        this.activeThreads = activeThreads;
+    public void setThreads(int threads) {
+        this.threads = threads;
     }
 }

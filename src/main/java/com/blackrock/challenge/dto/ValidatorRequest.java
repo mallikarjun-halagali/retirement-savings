@@ -1,33 +1,39 @@
 package com.blackrock.challenge.dto;
 
-import com.blackrock.challenge.model.Expense;
+import com.blackrock.challenge.model.*;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSetter;
 import java.util.List;
 
 public class ValidatorRequest {
 
-    @JsonProperty("expenses")
-    private List<Expense> expenses;
+    private List<Transaction> transactions;
 
     @JsonProperty("wage")
-    private long wage;
+    private double wage;
 
     public ValidatorRequest() {
     }
 
-    public List<Expense> getExpenses() {
-        return expenses;
+    public List<Transaction> getTransactions() {
+        return transactions;
     }
 
-    public void setExpenses(List<Expense> expenses) {
-        this.expenses = expenses;
+    @JsonSetter("transactions")
+    public void setTransactions(List<Transaction> transactions) {
+        this.transactions = transactions;
     }
 
-    public long getWage() {
+    @JsonSetter("expenses")
+    public void setExpenses(List<Transaction> expenses) {
+        this.transactions = expenses;
+    }
+
+    public double getWage() {
         return wage;
     }
 
-    public void setWage(long wage) {
+    public void setWage(double wage) {
         this.wage = wage;
     }
 }

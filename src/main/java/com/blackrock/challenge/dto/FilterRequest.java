@@ -34,15 +34,14 @@ public class FilterRequest {
         return expenses;
     }
 
-    // Accept both "expenses" and "transactions" as field name
-    @JsonSetter("expenses")
-    public void setExpenses(List<Expense> expenses) {
-        this.expenses = expenses;
-    }
-
     @JsonSetter("transactions")
     public void setTransactions(List<Expense> transactions) {
         this.expenses = transactions;
+    }
+
+    @JsonSetter("expenses")
+    public void setExpenses(List<Expense> expenses) {
+        this.expenses = expenses;
     }
 
     public List<QPeriod> getQ() {

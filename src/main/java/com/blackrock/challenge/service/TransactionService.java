@@ -9,7 +9,9 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.ResolverStyle;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class TransactionService {
@@ -22,8 +24,7 @@ public class TransactionService {
             .withResolverStyle(ResolverStyle.LENIENT);
 
     /**
-     * Parse expenses: compute ceiling and remanent for each.
-     * Accepts a plain list of expenses (not wrapped in an object).
+     * Parse: accepts a plain list of expenses, returns enriched transactions.
      */
     public List<Transaction> parseList(List<Expense> expenses) {
         List<Transaction> transactions = new ArrayList<>();
@@ -37,46 +38,49 @@ public class TransactionService {
     }
 
     /**
-     * Parse expenses from a wrapped request object.
+     * Parse from wrapped request.
      */
     public ParseResponse parse(ParseRequest request) {
         return new ParseResponse(parseList(request.getExpenses()));
     }
 
     /**
-     * Validate expenses against constraints.
+     * Validator: validates transactions, returns valid/invalid with error messages.
      */
     public ValidatorResponse validate(ValidatorRequest request) {
-        List<Expense> valid = new ArrayList<>();
-        List<Expense> invalid = new ArrayList<>();
+        List<Transaction> valid = new ArrayList<>();
+        List<InvalidTransaction> invalid = new ArrayList<>();
+        Set<String> seenDates = new HashSet<>();
 
-        java.util.Set<String> seenDates = new java.util.HashSet<>();
+        for (Transaction txn : request.getTransactions()) {
+            String errorMsg = null;
 
-        for (Expense expense : request.getExpenses()) {
-            boolean isValid = true;
-
-            if (expense.getAmount() < 0 || expense.getAmount() >= 500000) {
-                isValid = false;
+            if (txn.getAmount() < 0) {
+                errorMsg = "Negative amounts are not allowed";
+            } else if (txn.getAmount() >= 500000) {
+                errorMsg = "Amount exceeds maximum allowed value of 500000";
             }
 
-            if (expense.getDate() == null || expense.getDate().isEmpty()) {
-                isValid = false;
-            } else {
-                try {
-                    LocalDateTime.parse(expense.getDate(), STRICT_FORMATTER);
-                } catch (Exception e) {
-                    isValid = false;
+            if (errorMsg == null) {
+                if (txn.getDate() == null || txn.getDate().isEmpty()) {
+                    errorMsg = "Date is required";
+                } else {
+                    try {
+                        LocalDateTime.parse(txn.getDate(), STRICT_FORMATTER);
+                    } catch (Exception e) {
+                        errorMsg = "Invalid date format. Expected: YYYY-MM-DD HH:mm:ss";
+                    }
                 }
             }
 
-            if (isValid && !seenDates.add(expense.getDate())) {
-                isValid = false;
+            if (errorMsg == null && !seenDates.add(txn.getDate())) {
+                errorMsg = "Duplicate transaction date";
             }
 
-            if (isValid) {
-                valid.add(expense);
+            if (errorMsg == null) {
+                valid.add(txn);
             } else {
-                invalid.add(expense);
+                invalid.add(new InvalidTransaction(txn, errorMsg));
             }
         }
 
@@ -84,7 +88,13 @@ public class TransactionService {
     }
 
     /**
-     * Apply q/p/k period rules and compute savings with returns.
+     * Filter: validates transactions according to q, p, k period rules.
+     * 1. Validate (negative amounts, duplicates) → invalid with message
+     * 2. Enrich valid ones with ceiling/remanent
+     * 3. Apply q-period rules (replace remanent with fixed value)
+     * 4. Apply p-period rules (add extra to remanent)
+     * 5. Check k-period membership (inKPeriod flag)
+     * 6. Exclude transactions with remanent = 0
      */
     public FilterResponse filter(FilterRequest request) {
         List<Expense> expenses = request.getExpenses();
@@ -95,17 +105,7 @@ public class TransactionService {
         List<PPeriod> pPeriods = request.getP() != null ? request.getP() : new ArrayList<>();
         List<KPeriod> kPeriods = request.getK() != null ? request.getK() : new ArrayList<>();
 
-        int age = request.getAge();
-        double wage = request.getWage();
-        double inflation = request.getInflation();
-
-        if (Math.abs(inflation) > 1.0) {
-            inflation = inflation / 100.0;
-        }
-
-        int years = 60 - age;
-        double npsRate = 0.0711;
-
+        // Pre-parse period date ranges
         List<LocalDateTime[]> qRanges = new ArrayList<>();
         for (QPeriod q : qPeriods) {
             qRanges.add(new LocalDateTime[] { parseLenient(q.getStart()), parseLenient(q.getEnd()) });
@@ -121,25 +121,49 @@ public class TransactionService {
             kRanges.add(new LocalDateTime[] { parseLenient(k.getStart()), parseLenient(k.getEnd()) });
         }
 
-        double[] remanents = new double[expenses.size()];
-        LocalDateTime[] expenseDates = new LocalDateTime[expenses.size()];
+        List<ValidTransaction> valid = new ArrayList<>();
+        List<InvalidTransaction> invalid = new ArrayList<>();
+        Set<String> seenDates = new HashSet<>();
 
-        double totalTransactionAmount = 0;
-        double totalCeiling = 0;
-
-        for (int i = 0; i < expenses.size(); i++) {
-            Expense expense = expenses.get(i);
+        for (Expense expense : expenses) {
             double amount = expense.getAmount();
-            LocalDateTime expDate = parseLenient(expense.getDate());
-            expenseDates[i] = expDate;
+            String date = expense.getDate();
 
+            // Step 1: Validate
+            if (amount < 0) {
+                invalid.add(new InvalidTransaction(date, amount, 0, 0, "Negative amounts are not allowed"));
+                continue;
+            }
+
+            if (amount >= 500000) {
+                invalid.add(
+                        new InvalidTransaction(date, amount, 0, 0, "Amount exceeds maximum allowed value of 500000"));
+                continue;
+            }
+
+            if (date == null || date.isEmpty()) {
+                invalid.add(new InvalidTransaction(date, amount, 0, 0, "Date is required"));
+                continue;
+            }
+
+            LocalDateTime expDate;
+            try {
+                expDate = LocalDateTime.parse(date, STRICT_FORMATTER);
+            } catch (Exception e) {
+                invalid.add(new InvalidTransaction(date, amount, 0, 0, "Invalid date format"));
+                continue;
+            }
+
+            if (!seenDates.add(date)) {
+                invalid.add(new InvalidTransaction(date, amount, 0, 0, "Duplicate transaction"));
+                continue;
+            }
+
+            // Step 2: Compute ceiling and remanent
             double ceiling = computeCeiling(amount);
             double remanent = ceiling - amount;
 
-            totalTransactionAmount += amount;
-            totalCeiling += ceiling;
-
-            // q period rules: latest start wins
+            // Step 3: Apply q-period rules (latest start wins)
             int bestQIndex = -1;
             LocalDateTime bestQStart = null;
             for (int j = 0; j < qPeriods.size(); j++) {
@@ -156,7 +180,7 @@ public class TransactionService {
                 remanent = qPeriods.get(bestQIndex).getFixed();
             }
 
-            // p period rules: all extras stack
+            // Step 4: Apply p-period rules (all extras stack)
             for (int j = 0; j < pPeriods.size(); j++) {
                 LocalDateTime pStart = pRanges.get(j)[0];
                 LocalDateTime pEnd = pRanges.get(j)[1];
@@ -165,38 +189,26 @@ public class TransactionService {
                 }
             }
 
-            remanents[i] = remanent;
-        }
+            // Step 5: Skip transactions with zero remanent (e.g., q fixed=0 with no p)
+            if (remanent == 0) {
+                continue;
+            }
 
-        // Group by k periods and calculate returns
-        List<KPeriodSavings> savingsByDates = new ArrayList<>();
-
-        for (int j = 0; j < kPeriods.size(); j++) {
-            LocalDateTime kStart = kRanges.get(j)[0];
-            LocalDateTime kEnd = kRanges.get(j)[1];
-            double sum = 0;
-
-            for (int i = 0; i < expenses.size(); i++) {
-                if (!expenseDates[i].isBefore(kStart) && !expenseDates[i].isAfter(kEnd)) {
-                    sum += remanents[i];
+            // Step 6: Check k-period membership
+            boolean inKPeriod = false;
+            for (int j = 0; j < kPeriods.size(); j++) {
+                LocalDateTime kStart = kRanges.get(j)[0];
+                LocalDateTime kEnd = kRanges.get(j)[1];
+                if (!expDate.isBefore(kStart) && !expDate.isAfter(kEnd)) {
+                    inKPeriod = true;
+                    break;
                 }
             }
 
-            double invested = sum;
-            double futureValue = invested * Math.pow(1 + npsRate, years);
-            double inflationAdjusted = futureValue / Math.pow(1 + inflation, years);
-            double profit = round2(inflationAdjusted - invested);
-            double taxBenefit = round2(calculateTaxBenefit(invested, wage));
-
-            savingsByDates.add(new KPeriodSavings(
-                    kPeriods.get(j).getStart(),
-                    kPeriods.get(j).getEnd(),
-                    sum,
-                    profit,
-                    taxBenefit));
+            valid.add(new ValidTransaction(date, amount, ceiling, remanent, inKPeriod));
         }
 
-        return new FilterResponse(totalTransactionAmount, totalCeiling, savingsByDates);
+        return new FilterResponse(valid, invalid);
     }
 
     /**
@@ -204,43 +216,9 @@ public class TransactionService {
      */
     private double computeCeiling(double amount) {
         double remainder = amount % 100;
-        if (remainder == 0) {
+        if (remainder == 0)
             return amount;
-        }
         return amount + (100 - remainder);
-    }
-
-    private double calculateTaxBenefit(double invested, double wage) {
-        double eligibleDeduction = Math.min(invested, Math.min(wage * 0.10, 200000));
-        double taxWithout = calculateSimpleTax(wage);
-        double taxWith = calculateSimpleTax(wage - eligibleDeduction);
-        return taxWithout - taxWith;
-    }
-
-    private double calculateSimpleTax(double income) {
-        if (income <= 700000)
-            return 0;
-        double tax = 0;
-        if (income > 1500000) {
-            tax += (income - 1500000) * 0.30;
-            income = 1500000;
-        }
-        if (income > 1200000) {
-            tax += (income - 1200000) * 0.20;
-            income = 1200000;
-        }
-        if (income > 1000000) {
-            tax += (income - 1000000) * 0.15;
-            income = 1000000;
-        }
-        if (income > 700000) {
-            tax += (income - 700000) * 0.10;
-        }
-        return tax;
-    }
-
-    private double round2(double value) {
-        return Math.round(value * 100.0) / 100.0;
     }
 
     private LocalDateTime parseLenient(String dateStr) {

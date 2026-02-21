@@ -9,14 +9,10 @@ package com.blackrock.challenge;
  *             micro-savings system including:
  *             - Expense rounding (ceiling/remanent calculation)
  *             - Transaction validation (amount, date, duplicates)
- *             - q-period override rules (latest start wins)
- *             - p-period addition rules (all extras stack)
- *             - k-period grouping (overlapping ranges)
+ *             - Filter: q/p/k period rules with inKPeriod flag
+ *             - Returns: NPS and Index savings per k-period
  *             - Indian tax slab calculation
- *             - NPS tax benefit calculation
- *             - NPS & Index Fund compound interest returns
  * Command: mvn test
- *          OR: docker run --rm blk-hacking-ind-mallikarjun-halagali mvn test
  * ============================================================
  */
 
@@ -27,7 +23,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -44,14 +39,6 @@ class SavingsCalculatorTest {
         transactionService = new TransactionService();
         taxService = new TaxService();
         returnsService = new ReturnsService();
-        // Inject taxService into returnsService via reflection for unit test
-        try {
-            var field = ReturnsService.class.getDeclaredField("taxService");
-            field.setAccessible(true);
-            field.set(returnsService, taxService);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
     }
 
     // ========== PARSE TESTS ==========
@@ -59,317 +46,231 @@ class SavingsCalculatorTest {
     @Test
     @DisplayName("Parse: 1519 → ceiling 1600, remanent 81")
     void testBasicRounding() {
-        ParseRequest req = new ParseRequest();
-        req.setExpenses(List.of(new Expense("2021-10-01 20:15:00", 1519)));
-        ParseResponse resp = transactionService.parse(req);
-
-        assertEquals(1, resp.getTransactions().size());
-        Transaction t = resp.getTransactions().get(0);
-        assertEquals(1600, t.getCeiling());
-        assertEquals(81, t.getRemanent());
+        List<Transaction> result = transactionService.parseList(
+                List.of(new Expense("2021-10-01 20:15:00", 1519)));
+        assertEquals(1600, result.get(0).getCeiling());
+        assertEquals(81, result.get(0).getRemanent());
     }
 
     @Test
     @DisplayName("Parse: 1500 (multiple of 100) → remanent 0")
     void testMultipleOf100() {
-        ParseRequest req = new ParseRequest();
-        req.setExpenses(List.of(new Expense("2021-10-01 20:15:00", 1500)));
-        ParseResponse resp = transactionService.parse(req);
-
-        Transaction t = resp.getTransactions().get(0);
-        assertEquals(1500, t.getCeiling());
-        assertEquals(0, t.getRemanent());
+        List<Transaction> result = transactionService.parseList(
+                List.of(new Expense("2021-10-01 20:15:00", 1500)));
+        assertEquals(1500, result.get(0).getCeiling());
+        assertEquals(0, result.get(0).getRemanent());
     }
 
     @Test
     @DisplayName("Parse: 0 → ceiling 0, remanent 0")
     void testZeroAmount() {
-        ParseRequest req = new ParseRequest();
-        req.setExpenses(List.of(new Expense("2021-10-01 20:15:00", 0)));
-        ParseResponse resp = transactionService.parse(req);
-
-        Transaction t = resp.getTransactions().get(0);
-        assertEquals(0, t.getCeiling());
-        assertEquals(0, t.getRemanent());
+        List<Transaction> result = transactionService.parseList(
+                List.of(new Expense("2021-10-01 20:15:00", 0)));
+        assertEquals(0, result.get(0).getCeiling());
+        assertEquals(0, result.get(0).getRemanent());
     }
 
     @Test
     @DisplayName("Parse: 1 → ceiling 100, remanent 99")
     void testSmallAmount() {
-        ParseRequest req = new ParseRequest();
-        req.setExpenses(List.of(new Expense("2021-10-01 20:15:00", 1)));
-        ParseResponse resp = transactionService.parse(req);
-
-        Transaction t = resp.getTransactions().get(0);
-        assertEquals(100, t.getCeiling());
-        assertEquals(99, t.getRemanent());
+        List<Transaction> result = transactionService.parseList(
+                List.of(new Expense("2021-10-01 20:15:00", 1)));
+        assertEquals(100, result.get(0).getCeiling());
+        assertEquals(99, result.get(0).getRemanent());
     }
 
     // ========== VALIDATOR TESTS ==========
 
     @Test
-    @DisplayName("Validator: valid expense passes all checks")
+    @DisplayName("Validator: valid transaction passes")
     void testValidExpense() {
         ValidatorRequest req = new ValidatorRequest();
-        req.setExpenses(List.of(new Expense("2021-10-01 20:15:00", 1519)));
+        req.setTransactions(List.of(new Transaction("2021-10-01 20:15:00", 1519, 1600, 81)));
         req.setWage(1000000);
         ValidatorResponse resp = transactionService.validate(req);
-
         assertEquals(1, resp.getValid().size());
         assertEquals(0, resp.getInvalid().size());
     }
 
     @Test
-    @DisplayName("Validator: amount >= 500000 is invalid")
-    void testInvalidAmount() {
+    @DisplayName("Validator: negative amount returns message")
+    void testNegativeAmount() {
         ValidatorRequest req = new ValidatorRequest();
-        req.setExpenses(List.of(new Expense("2021-10-01 20:15:00", 500000)));
-        req.setWage(1000000);
+        req.setTransactions(List.of(new Transaction("2021-10-01 20:15:00", -250, 200, 30)));
+        req.setWage(50000);
         ValidatorResponse resp = transactionService.validate(req);
-
         assertEquals(0, resp.getValid().size());
-        assertEquals(1, resp.getInvalid().size());
+        assertEquals("Negative amounts are not allowed", resp.getInvalid().get(0).getMessage());
     }
 
     @Test
-    @DisplayName("Validator: duplicate dates → second is invalid")
+    @DisplayName("Validator: duplicate dates → second invalid")
     void testDuplicateDates() {
         ValidatorRequest req = new ValidatorRequest();
-        req.setExpenses(List.of(
-                new Expense("2021-10-01 20:15:00", 100),
-                new Expense("2021-10-01 20:15:00", 200)));
+        req.setTransactions(List.of(
+                new Transaction("2021-10-01 20:15:00", 100, 100, 0),
+                new Transaction("2021-10-01 20:15:00", 200, 200, 0)));
         req.setWage(1000000);
         ValidatorResponse resp = transactionService.validate(req);
-
         assertEquals(1, resp.getValid().size());
+        assertEquals("Duplicate transaction date", resp.getInvalid().get(0).getMessage());
+    }
+
+    @Test
+    @DisplayName("Validator: amount >= 500000 invalid")
+    void testInvalidAmount() {
+        ValidatorRequest req = new ValidatorRequest();
+        req.setTransactions(List.of(new Transaction("2021-10-01 20:15:00", 500000, 500000, 0)));
+        req.setWage(1000000);
+        ValidatorResponse resp = transactionService.validate(req);
+        assertEquals(0, resp.getValid().size());
         assertEquals(1, resp.getInvalid().size());
     }
 
     // ========== FILTER TESTS ==========
 
     @Test
-    @DisplayName("Filter: no q/p periods, single k groups correctly")
-    void testFilterNoPeriodsNoK() {
+    @DisplayName("Filter: basic enrichment with inKPeriod")
+    void testFilterBasic() {
+        FilterRequest req = new FilterRequest();
+        req.setExpenses(List.of(new Expense("2021-10-01 20:15:00", 1519)));
+        req.setQ(Collections.emptyList());
+        req.setP(Collections.emptyList());
+        req.setK(List.of(new KPeriod("2021-10-01 00:00:00", "2021-10-31 23:59:59")));
+        FilterResponse resp = transactionService.filter(req);
+        assertEquals(1, resp.getValid().size());
+        assertEquals(81.0, resp.getValid().get(0).getRemanent());
+        assertTrue(resp.getValid().get(0).isInKPeriod());
+    }
+
+    @Test
+    @DisplayName("Filter: q-period fixed=0 excludes transaction")
+    void testFilterQExcludes() {
+        FilterRequest req = new FilterRequest();
+        req.setExpenses(List.of(new Expense("2023-07-15 10:30:00", 620)));
+        req.setQ(List.of(new QPeriod("2023-07-01 00:00:00", "2023-07-31 23:59:59", 0)));
+        req.setP(Collections.emptyList());
+        req.setK(List.of(new KPeriod("2023-01-01 00:00:00", "2023-12-31 23:59:59")));
+        FilterResponse resp = transactionService.filter(req);
+        assertEquals(0, resp.getValid().size());
+    }
+
+    @Test
+    @DisplayName("Filter: p-period adds extra")
+    void testFilterPAdds() {
+        FilterRequest req = new FilterRequest();
+        req.setExpenses(List.of(new Expense("2023-10-12 20:15:30", 250)));
+        req.setQ(Collections.emptyList());
+        req.setP(List.of(new PPeriod("2023-10-01 00:00:00", "2023-12-31 23:59:59", 30)));
+        req.setK(List.of(new KPeriod("2023-01-01 00:00:00", "2023-12-31 23:59:59")));
+        FilterResponse resp = transactionService.filter(req);
+        assertEquals(80.0, resp.getValid().get(0).getRemanent());
+    }
+
+    @Test
+    @DisplayName("Filter: full sample matches expected output")
+    void testFilterFullSample() {
         FilterRequest req = new FilterRequest();
         req.setExpenses(List.of(
-                new Expense("2021-10-01 20:15:00", 1519),
-                new Expense("2021-10-02 10:00:00", 250)));
-        req.setQ(Collections.emptyList());
-        req.setP(Collections.emptyList());
-        req.setK(List.of(new KPeriod("2021-10-01 00:00:00", "2021-10-31 23:59:59")));
-
+                new Expense("2023-02-28 15:49:20", 375),
+                new Expense("2023-07-15 10:30:00", 620),
+                new Expense("2023-10-12 20:15:30", 250),
+                new Expense("2023-10-12 20:15:30", 250),
+                new Expense("2023-12-17 08:09:45", -480)));
+        req.setQ(List.of(new QPeriod("2023-07-01 00:00:00", "2023-07-31 23:59:59", 0)));
+        req.setP(List.of(new PPeriod("2023-10-01 00:00:00", "2023-12-31 23:59:59", 30)));
+        req.setK(List.of(new KPeriod("2023-01-01 00:00:00", "2023-12-31 23:59:59")));
         FilterResponse resp = transactionService.filter(req);
 
-        assertEquals(1, resp.getSavingsByDates().size());
-        assertEquals(131.0, resp.getSavingsByDates().get(0).getAmount());
+        assertEquals(2, resp.getValid().size());
+        assertEquals(25.0, resp.getValid().get(0).getRemanent());
+        assertEquals(80.0, resp.getValid().get(1).getRemanent());
+        assertEquals(2, resp.getInvalid().size());
     }
 
-    @Test
-    @DisplayName("Filter q-period: remanent replaced with fixed amount")
-    void testQPeriodOverride() {
-        FilterRequest req = new FilterRequest();
-        req.setExpenses(List.of(new Expense("2021-10-01 20:15:00", 1519)));
-        req.setQ(List.of(new QPeriod("2021-10-01 00:00:00", "2021-10-31 23:59:59", 50)));
-        req.setP(Collections.emptyList());
-        req.setK(List.of(new KPeriod("2021-10-01 00:00:00", "2021-10-31 23:59:59")));
-
-        FilterResponse resp = transactionService.filter(req);
-
-        assertEquals(50.0, resp.getSavingsByDates().get(0).getAmount());
-    }
+    // ========== RETURNS TESTS ==========
 
     @Test
-    @DisplayName("Filter q-period: multiple overlap → latest start wins")
-    void testQPeriodLatestStartWins() {
-        FilterRequest req = new FilterRequest();
-        req.setExpenses(List.of(new Expense("2021-10-15 12:00:00", 1519)));
-        req.setQ(List.of(
-                new QPeriod("2021-10-01 00:00:00", "2021-10-31 23:59:59", 50),
-                new QPeriod("2021-10-10 00:00:00", "2021-10-20 23:59:59", 75)));
-        req.setP(Collections.emptyList());
-        req.setK(List.of(new KPeriod("2021-10-01 00:00:00", "2021-10-31 23:59:59")));
-
-        FilterResponse resp = transactionService.filter(req);
-
-        assertEquals(75.0, resp.getSavingsByDates().get(0).getAmount());
-    }
-
-    @Test
-    @DisplayName("Filter q-period: same start date → first in list wins")
-    void testQPeriodSameStartFirstInList() {
-        FilterRequest req = new FilterRequest();
-        req.setExpenses(List.of(new Expense("2021-10-15 12:00:00", 1519)));
-        req.setQ(List.of(
-                new QPeriod("2021-10-10 00:00:00", "2021-10-20 23:59:59", 50),
-                new QPeriod("2021-10-10 00:00:00", "2021-10-25 23:59:59", 75)));
-        req.setP(Collections.emptyList());
-        req.setK(List.of(new KPeriod("2021-10-01 00:00:00", "2021-10-31 23:59:59")));
-
-        FilterResponse resp = transactionService.filter(req);
-
-        assertEquals(50.0, resp.getSavingsByDates().get(0).getAmount());
-    }
-
-    @Test
-    @DisplayName("Filter p-period: extra added to remanent")
-    void testPPeriodAddition() {
-        FilterRequest req = new FilterRequest();
-        req.setExpenses(List.of(new Expense("2021-10-01 20:15:00", 1519)));
-        req.setQ(Collections.emptyList());
-        req.setP(List.of(new PPeriod("2021-10-01 00:00:00", "2021-10-31 23:59:59", 20)));
-        req.setK(List.of(new KPeriod("2021-10-01 00:00:00", "2021-10-31 23:59:59")));
-
-        FilterResponse resp = transactionService.filter(req);
-
-        assertEquals(101.0, resp.getSavingsByDates().get(0).getAmount());
-    }
-
-    @Test
-    @DisplayName("Filter p-period: multiple overlapping p-periods stack additively")
-    void testMultiplePPeriodsStack() {
-        FilterRequest req = new FilterRequest();
-        req.setExpenses(List.of(new Expense("2021-10-01 20:15:00", 1519)));
-        req.setQ(Collections.emptyList());
-        req.setP(List.of(
-                new PPeriod("2021-10-01 00:00:00", "2021-10-31 23:59:59", 20),
-                new PPeriod("2021-10-01 00:00:00", "2021-10-15 23:59:59", 10)));
-        req.setK(List.of(new KPeriod("2021-10-01 00:00:00", "2021-10-31 23:59:59")));
-
-        FilterResponse resp = transactionService.filter(req);
-
-        assertEquals(111.0, resp.getSavingsByDates().get(0).getAmount());
-    }
-
-    @Test
-    @DisplayName("Filter q+p combined: q replaces, then p adds on top")
-    void testQThenPCombined() {
-        FilterRequest req = new FilterRequest();
-        req.setExpenses(List.of(new Expense("2021-10-01 20:15:00", 1519)));
-        req.setQ(List.of(new QPeriod("2021-10-01 00:00:00", "2021-10-31 23:59:59", 50)));
-        req.setP(List.of(new PPeriod("2021-10-01 00:00:00", "2021-10-31 23:59:59", 20)));
-        req.setK(List.of(new KPeriod("2021-10-01 00:00:00", "2021-10-31 23:59:59")));
-
-        FilterResponse resp = transactionService.filter(req);
-
-        assertEquals(70.0, resp.getSavingsByDates().get(0).getAmount());
-    }
-
-    @Test
-    @DisplayName("Filter k-period: multiple k ranges group independently")
-    void testMultipleKPeriods() {
+    @DisplayName("NPS: full sample matches expected output")
+    void testNPSFullSample() {
         FilterRequest req = new FilterRequest();
         req.setExpenses(List.of(
-                new Expense("2021-10-01 20:15:00", 1519),
-                new Expense("2021-11-01 10:00:00", 250)));
-        req.setQ(Collections.emptyList());
-        req.setP(Collections.emptyList());
+                new Expense("2023-02-28 15:49:20", 375),
+                new Expense("2023-07-01 21:59:00", 620),
+                new Expense("2023-10-12 20:15:30", 250),
+                new Expense("2023-12-17 08:09:45", 480),
+                new Expense("2023-12-17 08:09:45", -10)));
+        req.setQ(List.of(new QPeriod("2023-07-01 00:00:00", "2023-07-31 23:59:59", 0)));
+        req.setP(List.of(new PPeriod("2023-10-01 08:00:00", "2023-12-31 19:59:59", 25)));
         req.setK(List.of(
-                new KPeriod("2021-10-01 00:00:00", "2021-10-31 23:59:59"),
-                new KPeriod("2021-11-01 00:00:00", "2021-11-30 23:59:59")));
+                new KPeriod("2023-01-01 00:00:00", "2023-12-31 23:59:59"),
+                new KPeriod("2023-03-01 00:00:00", "2023-11-31 23:59:59")));
+        req.setAge(29);
+        req.setWage(50000);
+        req.setInflation(5.5);
 
-        FilterResponse resp = transactionService.filter(req);
+        ReturnsResponse resp = returnsService.calculateNPS(req);
 
+        assertEquals(1725.0, resp.getTotalTransactionAmount());
+        assertEquals(1900.0, resp.getTotalCeiling());
         assertEquals(2, resp.getSavingsByDates().size());
-        assertEquals(81.0, resp.getSavingsByDates().get(0).getAmount());
-        assertEquals(50.0, resp.getSavingsByDates().get(1).getAmount());
+        assertEquals(145.0, resp.getSavingsByDates().get(0).getAmount());
+        assertEquals(86.88, resp.getSavingsByDates().get(0).getProfit());
+        assertEquals(0.0, resp.getSavingsByDates().get(0).getTaxBenefit());
+        assertEquals(75.0, resp.getSavingsByDates().get(1).getAmount());
+        assertEquals(44.94, resp.getSavingsByDates().get(1).getProfit());
     }
 
     @Test
-    @DisplayName("Filter k-period: overlapping k ranges count same transaction in both")
-    void testOverlappingKPeriods() {
+    @DisplayName("Index: taxBenefit is always 0")
+    void testIndexNoTaxBenefit() {
         FilterRequest req = new FilterRequest();
-        req.setExpenses(List.of(new Expense("2021-10-15 12:00:00", 1519)));
+        req.setExpenses(List.of(new Expense("2023-02-28 15:49:20", 375)));
         req.setQ(Collections.emptyList());
         req.setP(Collections.emptyList());
-        req.setK(List.of(
-                new KPeriod("2021-10-01 00:00:00", "2021-10-31 23:59:59"),
-                new KPeriod("2021-10-10 00:00:00", "2021-10-20 23:59:59")));
+        req.setK(List.of(new KPeriod("2023-01-01 00:00:00", "2023-12-31 23:59:59")));
+        req.setAge(29);
+        req.setWage(50000);
+        req.setInflation(5.5);
 
-        FilterResponse resp = transactionService.filter(req);
-
-        assertEquals(2, resp.getSavingsByDates().size());
-        assertEquals(81.0, resp.getSavingsByDates().get(0).getAmount());
-        assertEquals(81.0, resp.getSavingsByDates().get(1).getAmount());
-    }
-
-    @Test
-    @DisplayName("Filter: empty expenses → all k-sums are 0")
-    void testEmptyExpenses() {
-        FilterRequest req = new FilterRequest();
-        req.setExpenses(Collections.emptyList());
-        req.setQ(Collections.emptyList());
-        req.setP(Collections.emptyList());
-        req.setK(List.of(new KPeriod("2021-10-01 00:00:00", "2021-10-31 23:59:59")));
-
-        FilterResponse resp = transactionService.filter(req);
+        ReturnsResponse resp = returnsService.calculateIndex(req);
 
         assertEquals(1, resp.getSavingsByDates().size());
-        assertEquals(0.0, resp.getSavingsByDates().get(0).getAmount());
+        assertEquals(0.0, resp.getSavingsByDates().get(0).getTaxBenefit());
+        assertTrue(resp.getSavingsByDates().get(0).getProfit() > 0);
     }
 
     // ========== TAX TESTS ==========
 
     @Test
-    @DisplayName("Tax: income ≤ 7L → zero tax")
+    @DisplayName("Tax: income <= 7L → zero")
     void testTaxBelowThreshold() {
         assertEquals(0.0, taxService.calculateTax(500000));
         assertEquals(0.0, taxService.calculateTax(700000));
     }
 
     @Test
-    @DisplayName("Tax: 8L → 10% on excess over 7L = ₹10,000")
+    @DisplayName("Tax: 8L → 10000")
     void testTaxFirstSlab() {
         assertEquals(10000.0, taxService.calculateTax(800000));
     }
 
     @Test
-    @DisplayName("Tax: 12L → multiple slabs = ₹60,000")
+    @DisplayName("Tax: 12L → 60000")
     void testTaxMultipleSlabs() {
         assertEquals(60000.0, taxService.calculateTax(1200000));
     }
 
     @Test
-    @DisplayName("Tax: 20L → all slabs up to 30% = ₹2,70,000")
+    @DisplayName("Tax: 20L → 270000")
     void testTaxAbove15L() {
         assertEquals(270000.0, taxService.calculateTax(2000000));
     }
 
     @Test
-    @DisplayName("Tax: NPS benefit calculated correctly for 15L wage")
+    @DisplayName("Tax: NPS benefit for 15L wage > 0")
     void testNPSTaxBenefit() {
         double benefit = taxService.calculateNPSTaxBenefit(100000, 1500000);
         assertTrue(benefit > 0);
-    }
-
-    // ========== RETURNS TESTS ==========
-
-    @Test
-    @DisplayName("Returns NPS: compound interest + inflation adjustment + tax benefit")
-    void testNPSReturns() {
-        NpsRequest req = new NpsRequest();
-        req.setInvested(10000);
-        req.setWage(1500000);
-        req.setAge(25);
-        req.setInflation(0.06);
-        NpsResponse resp = returnsService.calculateNPS(req);
-
-        assertTrue(resp.getReturns() > resp.getInvested());
-        assertTrue(resp.getProfit() > 0);
-        assertTrue(resp.getInflationAdjusted() < resp.getReturns());
-        assertTrue(resp.getTaxBenefit() >= 0);
-    }
-
-    @Test
-    @DisplayName("Returns Index: compound interest + inflation adjustment, no tax benefit")
-    void testIndexReturns() {
-        IndexRequest req = new IndexRequest();
-        req.setInvested(10000);
-        req.setAge(25);
-        req.setInflation(0.06);
-        IndexResponse resp = returnsService.calculateIndex(req);
-
-        assertTrue(resp.getReturns() > resp.getInvested());
-        assertTrue(resp.getProfit() > 0);
-        assertTrue(resp.getInflationAdjusted() < resp.getReturns());
     }
 }

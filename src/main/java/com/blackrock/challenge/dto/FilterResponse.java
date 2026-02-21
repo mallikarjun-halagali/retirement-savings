@@ -1,49 +1,38 @@
 package com.blackrock.challenge.dto;
 
+import com.blackrock.challenge.model.*;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
 public class FilterResponse {
 
-    @JsonProperty("totalTransactionAmount")
-    private double totalTransactionAmount;
+    @JsonProperty("valid")
+    private List<ValidTransaction> valid;
 
-    @JsonProperty("totalCeiling")
-    private double totalCeiling;
-
-    @JsonProperty("savingsByDates")
-    private List<KPeriodSavings> savingsByDates;
+    @JsonProperty("invalid")
+    private List<InvalidTransaction> invalid;
 
     public FilterResponse() {
     }
 
-    public FilterResponse(double totalTransactionAmount, double totalCeiling, List<KPeriodSavings> savingsByDates) {
-        this.totalTransactionAmount = totalTransactionAmount;
-        this.totalCeiling = totalCeiling;
-        this.savingsByDates = savingsByDates;
+    public FilterResponse(List<ValidTransaction> valid, List<InvalidTransaction> invalid) {
+        this.valid = valid;
+        this.invalid = invalid;
     }
 
-    public double getTotalTransactionAmount() {
-        return totalTransactionAmount;
+    public List<ValidTransaction> getValid() {
+        return valid;
     }
 
-    public void setTotalTransactionAmount(double totalTransactionAmount) {
-        this.totalTransactionAmount = totalTransactionAmount;
+    public void setValid(List<ValidTransaction> valid) {
+        this.valid = valid;
     }
 
-    public double getTotalCeiling() {
-        return totalCeiling;
+    public List<InvalidTransaction> getInvalid() {
+        return invalid;
     }
 
-    public void setTotalCeiling(double totalCeiling) {
-        this.totalCeiling = totalCeiling;
-    }
-
-    public List<KPeriodSavings> getSavingsByDates() {
-        return savingsByDates;
-    }
-
-    public void setSavingsByDates(List<KPeriodSavings> savingsByDates) {
-        this.savingsByDates = savingsByDates;
+    public void setInvalid(List<InvalidTransaction> invalid) {
+        this.invalid = invalid;
     }
 }

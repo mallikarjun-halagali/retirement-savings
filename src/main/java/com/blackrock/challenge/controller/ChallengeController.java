@@ -24,7 +24,7 @@ public class ChallengeController {
 
     /**
      * POST /transactions:parse
-     * Accepts a plain JSON array of expenses and returns enriched transactions.
+     * Accepts a plain JSON array of expenses, returns enriched transactions.
      */
     @PostMapping("/transactions:parse")
     public ResponseEntity<List<Transaction>> parseTransactions(@RequestBody List<Expense> expenses) {
@@ -33,7 +33,7 @@ public class ChallengeController {
 
     /**
      * POST /transactions:validator
-     * Validate transactions against constraints.
+     * Validates transactions against constraints.
      */
     @PostMapping("/transactions:validator")
     public ResponseEntity<ValidatorResponse> validateTransactions(@RequestBody ValidatorRequest request) {
@@ -42,7 +42,8 @@ public class ChallengeController {
 
     /**
      * POST /transactions:filter
-     * Apply q, p, k temporal constraints and calculate savings.
+     * Validates transactions according to q, p, k period rules.
+     * Returns valid (with inKPeriod) and invalid (with message).
      */
     @PostMapping("/transactions:filter")
     public ResponseEntity<FilterResponse> filterTransactions(@RequestBody FilterRequest request) {
@@ -51,19 +52,19 @@ public class ChallengeController {
 
     /**
      * POST /returns:nps
-     * Calculate NPS returns with tax benefit.
+     * Calculates NPS returns with tax benefit, grouped by k-periods.
      */
     @PostMapping("/returns:nps")
-    public ResponseEntity<NpsResponse> calculateNPS(@RequestBody NpsRequest request) {
+    public ResponseEntity<ReturnsResponse> calculateNPS(@RequestBody FilterRequest request) {
         return ResponseEntity.ok(returnsService.calculateNPS(request));
     }
 
     /**
      * POST /returns:index
-     * Calculate Index Fund (NIFTY 50) returns.
+     * Calculates Index Fund returns (no tax benefit), grouped by k-periods.
      */
     @PostMapping("/returns:index")
-    public ResponseEntity<IndexResponse> calculateIndex(@RequestBody IndexRequest request) {
+    public ResponseEntity<ReturnsResponse> calculateIndex(@RequestBody FilterRequest request) {
         return ResponseEntity.ok(returnsService.calculateIndex(request));
     }
 
