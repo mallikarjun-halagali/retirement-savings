@@ -1,8 +1,20 @@
+# Docker Compose configuration for blk-hacking-ind-mallikarjun-halagali
+# Run: docker compose up -d
+# Stop: docker compose down
 services:
   blk-hacking-ind-mallikarjun-halagali:
     build: .
     image: blk-hacking-ind-mallikarjun-halagali
+    container_name: retirement-savings
     ports:
       - "5477:5477"
     environment:
       - SERVER_PORT=5477
+      - JAVA_OPTS=-Xmx256m
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:5477/blackrock/challenge/v1/performance" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
