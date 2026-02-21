@@ -1,0 +1,8 @@
+services:
+  blk-hacking-ind-mallikarjun-halagali:
+    build: .
+    image: blk-hacking-ind-mallikarjun-halagali
+    ports:
+      - "5477:5477"
+    environment:
+      - SERVER_PORT=5477

@@ -1,0 +1,24 @@
+# Build
+target/
+*.jar
+*.war
+
+# Maven
+apache-maven-*
+apache-maven.zip
+mvn-wrapper.zip
+.mvn/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+apache-maven.zip

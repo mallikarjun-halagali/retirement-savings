@@ -1,0 +1,6 @@
+target/
+*.zip
+apache-maven-*
+.mvn/
+.idea/
+*.iml
