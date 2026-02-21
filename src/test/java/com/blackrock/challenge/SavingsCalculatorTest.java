@@ -1,10 +1,31 @@
 package com.blackrock.challenge;
 
+/*
+ * ============================================================
+ * TEST METADATA
+ * ============================================================
+ * Test Type: Unit Tests
+ * Validation: Core business logic validation for the retirement
+ *             micro-savings system including:
+ *             - Expense rounding (ceiling/remanent calculation)
+ *             - Transaction validation (amount, date, duplicates)
+ *             - q-period override rules (latest start wins)
+ *             - p-period addition rules (all extras stack)
+ *             - k-period grouping (overlapping ranges)
+ *             - Indian tax slab calculation
+ *             - NPS tax benefit calculation
+ *             - NPS & Index Fund compound interest returns
+ * Command: mvn test
+ *          OR: docker run --rm blk-hacking-ind-mallikarjun-halagali mvn test
+ * ============================================================
+ */
+
 import com.blackrock.challenge.dto.*;
 import com.blackrock.challenge.model.*;
 import com.blackrock.challenge.service.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.DisplayName;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -36,6 +57,7 @@ class SavingsCalculatorTest {
     // ========== PARSE TESTS ==========
 
     @Test
+    @DisplayName("Parse: 1519 → ceiling 1600, remanent 81")
     void testBasicRounding() {
         ParseRequest req = new ParseRequest();
         req.setExpenses(List.of(new Expense("2021-10-01 20:15:00", 1519)));
@@ -48,6 +70,7 @@ class SavingsCalculatorTest {
     }
 
     @Test
+    @DisplayName("Parse: 1500 (multiple of 100) → remanent 0")
     void testMultipleOf100() {
         ParseRequest req = new ParseRequest();
         req.setExpenses(List.of(new Expense("2021-10-01 20:15:00", 1500)));
@@ -59,6 +82,7 @@ class SavingsCalculatorTest {
     }
 
     @Test
+    @DisplayName("Parse: 0 → ceiling 0, remanent 0")
     void testZeroAmount() {
         ParseRequest req = new ParseRequest();
         req.setExpenses(List.of(new Expense("2021-10-01 20:15:00", 0)));
@@ -70,6 +94,7 @@ class SavingsCalculatorTest {
     }
 
     @Test
+    @DisplayName("Parse: 1 → ceiling 100, remanent 99")
     void testSmallAmount() {
         ParseRequest req = new ParseRequest();
         req.setExpenses(List.of(new Expense("2021-10-01 20:15:00", 1)));
@@ -83,6 +108,7 @@ class SavingsCalculatorTest {
     // ========== VALIDATOR TESTS ==========
 
     @Test
+    @DisplayName("Validator: valid expense passes all checks")
     void testValidExpense() {
         ValidatorRequest req = new ValidatorRequest();
         req.setExpenses(List.of(new Expense("2021-10-01 20:15:00", 1519)));
@@ -94,6 +120,7 @@ class SavingsCalculatorTest {
     }
 
     @Test
+    @DisplayName("Validator: amount >= 500000 is invalid")
     void testInvalidAmount() {
         ValidatorRequest req = new ValidatorRequest();
         req.setExpenses(List.of(new Expense("2021-10-01 20:15:00", 500000)));
@@ -105,6 +132,7 @@ class SavingsCalculatorTest {
     }
 
     @Test
+    @DisplayName("Validator: duplicate dates → second is invalid")
     void testDuplicateDates() {
         ValidatorRequest req = new ValidatorRequest();
         req.setExpenses(List.of(
@@ -120,6 +148,7 @@ class SavingsCalculatorTest {
     // ========== FILTER TESTS ==========
 
     @Test
+    @DisplayName("Filter: no q/p periods, single k groups correctly")
     void testFilterNoPeriodsNoK() {
         FilterRequest req = new FilterRequest();
         req.setExpenses(List.of(
@@ -131,15 +160,13 @@ class SavingsCalculatorTest {
 
         FilterResponse resp = transactionService.filter(req);
 
-        // 1519 -> ceil 1600, rem 81
-        // 250 -> ceil 300, rem 50
-        // k sum = 131
         assertEquals(1, resp.getSavingsByDates().size());
         assertEquals(131, resp.getSavingsByDates().get(0));
         assertEquals(131, resp.getTotalSavings());
     }
 
     @Test
+    @DisplayName("Filter q-period: remanent replaced with fixed amount")
     void testQPeriodOverride() {
         FilterRequest req = new FilterRequest();
         req.setExpenses(List.of(new Expense("2021-10-01 20:15:00", 1519)));
@@ -149,11 +176,11 @@ class SavingsCalculatorTest {
 
         FilterResponse resp = transactionService.filter(req);
 
-        // q replaces remanent with 50
         assertEquals(50, resp.getSavingsByDates().get(0));
     }
 
     @Test
+    @DisplayName("Filter q-period: multiple overlap → latest start wins")
     void testQPeriodLatestStartWins() {
         FilterRequest req = new FilterRequest();
         req.setExpenses(List.of(new Expense("2021-10-15 12:00:00", 1519)));
@@ -165,11 +192,11 @@ class SavingsCalculatorTest {
 
         FilterResponse resp = transactionService.filter(req);
 
-        // Second q period has later start (Oct 10 > Oct 1), so fixed=75 wins
         assertEquals(75, resp.getSavingsByDates().get(0));
     }
 
     @Test
+    @DisplayName("Filter q-period: same start date → first in list wins")
     void testQPeriodSameStartFirstInList() {
         FilterRequest req = new FilterRequest();
         req.setExpenses(List.of(new Expense("2021-10-15 12:00:00", 1519)));
@@ -181,11 +208,11 @@ class SavingsCalculatorTest {
 
         FilterResponse resp = transactionService.filter(req);
 
-        // Same start date → first in list wins → fixed=50
         assertEquals(50, resp.getSavingsByDates().get(0));
     }
 
     @Test
+    @DisplayName("Filter p-period: extra added to remanent")
     void testPPeriodAddition() {
         FilterRequest req = new FilterRequest();
         req.setExpenses(List.of(new Expense("2021-10-01 20:15:00", 1519)));
@@ -195,11 +222,11 @@ class SavingsCalculatorTest {
 
         FilterResponse resp = transactionService.filter(req);
 
-        // remanent=81 + extra=20 = 101
         assertEquals(101, resp.getSavingsByDates().get(0));
     }
 
     @Test
+    @DisplayName("Filter p-period: multiple overlapping p-periods stack additively")
     void testMultiplePPeriodsStack() {
         FilterRequest req = new FilterRequest();
         req.setExpenses(List.of(new Expense("2021-10-01 20:15:00", 1519)));
@@ -211,11 +238,11 @@ class SavingsCalculatorTest {
 
         FilterResponse resp = transactionService.filter(req);
 
-        // remanent=81 + 20 + 10 = 111
         assertEquals(111, resp.getSavingsByDates().get(0));
     }
 
     @Test
+    @DisplayName("Filter q+p combined: q replaces, then p adds on top")
     void testQThenPCombined() {
         FilterRequest req = new FilterRequest();
         req.setExpenses(List.of(new Expense("2021-10-01 20:15:00", 1519)));
@@ -225,11 +252,11 @@ class SavingsCalculatorTest {
 
         FilterResponse resp = transactionService.filter(req);
 
-        // q replaces remanent with 50, then p adds 20 → 70
         assertEquals(70, resp.getSavingsByDates().get(0));
     }
 
     @Test
+    @DisplayName("Filter k-period: multiple k ranges group independently")
     void testMultipleKPeriods() {
         FilterRequest req = new FilterRequest();
         req.setExpenses(List.of(
@@ -244,12 +271,13 @@ class SavingsCalculatorTest {
         FilterResponse resp = transactionService.filter(req);
 
         assertEquals(2, resp.getSavingsByDates().size());
-        assertEquals(81, resp.getSavingsByDates().get(0)); // Oct: 1519 → rem 81
-        assertEquals(50, resp.getSavingsByDates().get(1)); // Nov: 250 → rem 50
+        assertEquals(81, resp.getSavingsByDates().get(0));
+        assertEquals(50, resp.getSavingsByDates().get(1));
         assertEquals(131, resp.getTotalSavings());
     }
 
     @Test
+    @DisplayName("Filter k-period: overlapping k ranges count same transaction in both")
     void testOverlappingKPeriods() {
         FilterRequest req = new FilterRequest();
         req.setExpenses(List.of(new Expense("2021-10-15 12:00:00", 1519)));
@@ -261,7 +289,6 @@ class SavingsCalculatorTest {
 
         FilterResponse resp = transactionService.filter(req);
 
-        // Transaction falls in both k periods
         assertEquals(2, resp.getSavingsByDates().size());
         assertEquals(81, resp.getSavingsByDates().get(0));
         assertEquals(81, resp.getSavingsByDates().get(1));
@@ -269,6 +296,7 @@ class SavingsCalculatorTest {
     }
 
     @Test
+    @DisplayName("Filter: empty expenses → all k-sums are 0")
     void testEmptyExpenses() {
         FilterRequest req = new FilterRequest();
         req.setExpenses(Collections.emptyList());
@@ -286,37 +314,33 @@ class SavingsCalculatorTest {
     // ========== TAX TESTS ==========
 
     @Test
+    @DisplayName("Tax: income ≤ 7L → zero tax")
     void testTaxBelowThreshold() {
         assertEquals(0.0, taxService.calculateTax(500000));
         assertEquals(0.0, taxService.calculateTax(700000));
     }
 
     @Test
+    @DisplayName("Tax: 8L → 10% on excess over 7L = ₹10,000")
     void testTaxFirstSlab() {
-        // 800000: (800000 - 700000) * 0.10 = 10000
         assertEquals(10000.0, taxService.calculateTax(800000));
     }
 
     @Test
+    @DisplayName("Tax: 12L → multiple slabs = ₹60,000")
     void testTaxMultipleSlabs() {
-        // 1200000: (1000000-700000)*0.10 + (1200000-1000000)*0.15
-        // = 30000 + 30000 = 60000
         assertEquals(60000.0, taxService.calculateTax(1200000));
     }
 
     @Test
+    @DisplayName("Tax: 20L → all slabs up to 30% = ₹2,70,000")
     void testTaxAbove15L() {
-        // 2000000: (1000000-700000)*0.10 + (1200000-1000000)*0.15 +
-        // (1500000-1200000)*0.20 + (2000000-1500000)*0.30
-        // = 30000 + 30000 + 60000 + 150000 = 270000
         assertEquals(270000.0, taxService.calculateTax(2000000));
     }
 
     @Test
+    @DisplayName("Tax: NPS benefit calculated correctly for 15L wage")
     void testNPSTaxBenefit() {
-        // wage = 1500000, invested = 100000
-        // eligible = min(100000, 150000, 200000) = 100000
-        // benefit = Tax(1500000) - Tax(1400000)
         double benefit = taxService.calculateNPSTaxBenefit(100000, 1500000);
         assertTrue(benefit > 0);
     }
@@ -324,6 +348,7 @@ class SavingsCalculatorTest {
     // ========== RETURNS TESTS ==========
 
     @Test
+    @DisplayName("Returns NPS: compound interest + inflation adjustment + tax benefit")
     void testNPSReturns() {
         NpsRequest req = new NpsRequest();
         req.setInvested(10000);
@@ -339,6 +364,7 @@ class SavingsCalculatorTest {
     }
 
     @Test
+    @DisplayName("Returns Index: compound interest + inflation adjustment, no tax benefit")
     void testIndexReturns() {
         IndexRequest req = new IndexRequest();
         req.setInvested(10000);
