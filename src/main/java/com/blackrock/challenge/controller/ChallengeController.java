@@ -1,10 +1,13 @@
 package com.blackrock.challenge.controller;
 
 import com.blackrock.challenge.dto.*;
+import com.blackrock.challenge.model.*;
 import com.blackrock.challenge.service.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/blackrock/challenge/v1")
@@ -21,11 +24,11 @@ public class ChallengeController {
 
     /**
      * POST /transactions:parse
-     * Enrich expenses with ceiling and remanent fields.
+     * Accepts a plain JSON array of expenses and returns enriched transactions.
      */
     @PostMapping("/transactions:parse")
-    public ResponseEntity<ParseResponse> parseTransactions(@RequestBody ParseRequest request) {
-        return ResponseEntity.ok(transactionService.parse(request));
+    public ResponseEntity<List<Transaction>> parseTransactions(@RequestBody List<Expense> expenses) {
+        return ResponseEntity.ok(transactionService.parseList(expenses));
     }
 
     /**

@@ -11,12 +11,12 @@ public class PPeriod {
     private String end;
 
     @JsonProperty("extra")
-    private long extra;
+    private double extra;
 
     public PPeriod() {
     }
 
-    public PPeriod(String start, String end, long extra) {
+    public PPeriod(String start, String end, double extra) {
         this.start = start;
         this.end = end;
         this.extra = extra;
@@ -38,11 +38,11 @@ public class PPeriod {
         this.end = end;
     }
 
-    public long getExtra() {
+    public double getExtra() {
         return extra;
     }
 
-    public void setExtra(long extra) {
+    public void setExtra(double extra) {
         this.extra = extra;
     }
 }

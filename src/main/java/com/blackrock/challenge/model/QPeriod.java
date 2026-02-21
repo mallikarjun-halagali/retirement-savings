@@ -11,12 +11,12 @@ public class QPeriod {
     private String end;
 
     @JsonProperty("fixed")
-    private long fixed;
+    private double fixed;
 
     public QPeriod() {
     }
 
-    public QPeriod(String start, String end, long fixed) {
+    public QPeriod(String start, String end, double fixed) {
         this.start = start;
         this.end = end;
         this.fixed = fixed;
@@ -38,11 +38,11 @@ public class QPeriod {
         this.end = end;
     }
 
-    public long getFixed() {
+    public double getFixed() {
         return fixed;
     }
 
-    public void setFixed(long fixed) {
+    public void setFixed(double fixed) {
         this.fixed = fixed;
     }
 }

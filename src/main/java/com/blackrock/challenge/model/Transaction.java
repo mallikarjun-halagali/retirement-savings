@@ -8,18 +8,18 @@ public class Transaction {
     private String date;
 
     @JsonProperty("amount")
-    private long amount;
+    private double amount;
 
     @JsonProperty("ceiling")
-    private long ceiling;
+    private double ceiling;
 
     @JsonProperty("remanent")
-    private long remanent;
+    private double remanent;
 
     public Transaction() {
     }
 
-    public Transaction(String date, long amount, long ceiling, long remanent) {
+    public Transaction(String date, double amount, double ceiling, double remanent) {
         this.date = date;
         this.amount = amount;
         this.ceiling = ceiling;
@@ -34,27 +34,27 @@ public class Transaction {
         this.date = date;
     }
 
-    public long getAmount() {
+    public double getAmount() {
         return amount;
     }
 
-    public void setAmount(long amount) {
+    public void setAmount(double amount) {
         this.amount = amount;
     }
 
-    public long getCeiling() {
+    public double getCeiling() {
         return ceiling;
     }
 
-    public void setCeiling(long ceiling) {
+    public void setCeiling(double ceiling) {
         this.ceiling = ceiling;
     }
 
-    public long getRemanent() {
+    public double getRemanent() {
         return remanent;
     }
 
-    public void setRemanent(long remanent) {
+    public void setRemanent(double remanent) {
         this.remanent = remanent;
     }
 }

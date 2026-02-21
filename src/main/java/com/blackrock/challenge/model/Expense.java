@@ -8,12 +8,12 @@ public class Expense {
     private String date;
 
     @JsonProperty("amount")
-    private long amount;
+    private double amount;
 
     public Expense() {
     }
 
-    public Expense(String date, long amount) {
+    public Expense(String date, double amount) {
         this.date = date;
         this.amount = amount;
     }
@@ -26,11 +26,11 @@ public class Expense {
         this.date = date;
     }
 
-    public long getAmount() {
+    public double getAmount() {
         return amount;
     }
 
-    public void setAmount(long amount) {
+    public void setAmount(double amount) {
         this.amount = amount;
     }
 }

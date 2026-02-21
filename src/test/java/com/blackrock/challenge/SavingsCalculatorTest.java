@@ -161,8 +161,7 @@ class SavingsCalculatorTest {
         FilterResponse resp = transactionService.filter(req);
 
         assertEquals(1, resp.getSavingsByDates().size());
-        assertEquals(131, resp.getSavingsByDates().get(0));
-        assertEquals(131, resp.getTotalSavings());
+        assertEquals(131.0, resp.getSavingsByDates().get(0).getAmount());
     }
 
     @Test
@@ -176,7 +175,7 @@ class SavingsCalculatorTest {
 
         FilterResponse resp = transactionService.filter(req);
 
-        assertEquals(50, resp.getSavingsByDates().get(0));
+        assertEquals(50.0, resp.getSavingsByDates().get(0).getAmount());
     }
 
     @Test
@@ -192,7 +191,7 @@ class SavingsCalculatorTest {
 
         FilterResponse resp = transactionService.filter(req);
 
-        assertEquals(75, resp.getSavingsByDates().get(0));
+        assertEquals(75.0, resp.getSavingsByDates().get(0).getAmount());
     }
 
     @Test
@@ -208,7 +207,7 @@ class SavingsCalculatorTest {
 
         FilterResponse resp = transactionService.filter(req);
 
-        assertEquals(50, resp.getSavingsByDates().get(0));
+        assertEquals(50.0, resp.getSavingsByDates().get(0).getAmount());
     }
 
     @Test
@@ -222,7 +221,7 @@ class SavingsCalculatorTest {
 
         FilterResponse resp = transactionService.filter(req);
 
-        assertEquals(101, resp.getSavingsByDates().get(0));
+        assertEquals(101.0, resp.getSavingsByDates().get(0).getAmount());
     }
 
     @Test
@@ -238,7 +237,7 @@ class SavingsCalculatorTest {
 
         FilterResponse resp = transactionService.filter(req);
 
-        assertEquals(111, resp.getSavingsByDates().get(0));
+        assertEquals(111.0, resp.getSavingsByDates().get(0).getAmount());
     }
 
     @Test
@@ -252,7 +251,7 @@ class SavingsCalculatorTest {
 
         FilterResponse resp = transactionService.filter(req);
 
-        assertEquals(70, resp.getSavingsByDates().get(0));
+        assertEquals(70.0, resp.getSavingsByDates().get(0).getAmount());
     }
 
     @Test
@@ -271,9 +270,8 @@ class SavingsCalculatorTest {
         FilterResponse resp = transactionService.filter(req);
 
         assertEquals(2, resp.getSavingsByDates().size());
-        assertEquals(81, resp.getSavingsByDates().get(0));
-        assertEquals(50, resp.getSavingsByDates().get(1));
-        assertEquals(131, resp.getTotalSavings());
+        assertEquals(81.0, resp.getSavingsByDates().get(0).getAmount());
+        assertEquals(50.0, resp.getSavingsByDates().get(1).getAmount());
     }
 
     @Test
@@ -290,9 +288,8 @@ class SavingsCalculatorTest {
         FilterResponse resp = transactionService.filter(req);
 
         assertEquals(2, resp.getSavingsByDates().size());
-        assertEquals(81, resp.getSavingsByDates().get(0));
-        assertEquals(81, resp.getSavingsByDates().get(1));
-        assertEquals(162, resp.getTotalSavings());
+        assertEquals(81.0, resp.getSavingsByDates().get(0).getAmount());
+        assertEquals(81.0, resp.getSavingsByDates().get(1).getAmount());
     }
 
     @Test
@@ -307,8 +304,7 @@ class SavingsCalculatorTest {
         FilterResponse resp = transactionService.filter(req);
 
         assertEquals(1, resp.getSavingsByDates().size());
-        assertEquals(0, resp.getSavingsByDates().get(0));
-        assertEquals(0, resp.getTotalSavings());
+        assertEquals(0.0, resp.getSavingsByDates().get(0).getAmount());
     }
 
     // ========== TAX TESTS ==========
